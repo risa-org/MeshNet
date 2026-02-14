@@ -1,0 +1,15 @@
+# compiled binaries
+meshnet.exe
+meshnet
+
+# the identity file contains your PRIVATE KEY
+# never ever commit this to a public repo
+identity.json
+
+# Go build cache
+*.test
+*.out
+
+# Windows stuff
+Thumbs.db
+desktop.ini

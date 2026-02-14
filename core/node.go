@@ -1,0 +1,79 @@
+package core
+
+import (
+	"fmt"
+	"net/url"
+	"os"
+
+	"github.com/gologme/log"
+	"github.com/yggdrasil-network/yggdrasil-go/src/admin"
+	yggcore "github.com/yggdrasil-network/yggdrasil-go/src/core"
+)
+
+type Node struct {
+	core    *yggcore.Core
+	admin   *admin.AdminSocket
+	logger  *log.Logger
+	address string
+}
+
+func NewNode() *Node {
+	return &Node{}
+}
+
+func (n *Node) Start() error {
+	n.logger = log.New(os.Stderr, "", 0)
+	n.logger.EnableLevel("info")
+	n.logger.EnableLevel("warn")
+	n.logger.EnableLevel("error")
+
+	pubKey, privKey, err := loadOrCreateIdentity()
+	if err != nil {
+		return fmt.Errorf("failed to load identity %w", err)
+	}
+
+	cert, err := generateSelfSignedCert(pubKey, privKey)
+	if err != nil {
+		return fmt.Errorf("failed to generate certificate %w", err)
+	}
+
+	n.core, err = yggcore.New(cert, n.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create yggdrasil node: %w", err)
+	}
+
+	n.admin, err = admin.New(n.core, n.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create admin socket: %w", err)
+	}
+
+	n.address = n.core.Address().String()
+	return nil
+}
+
+func (n *Node) AddPeer(peerURL string) error {
+	u, err := url.Parse(peerURL)
+	if err != nil {
+		return fmt.Errorf("invalid peer URL %s: %w", peerURL, err)
+	}
+	return n.core.AddPeer(u, "")
+}
+
+func (n *Node) Address() string {
+	return n.address
+}
+
+func (n *Node) PublicKey() string {
+	return fmt.Sprintf("%x", n.core.PublicKey())
+}
+
+func (n *Node) Stop() {
+	if n.admin != nil {
+		n.admin.Stop()
+	}
+
+	if n.core != nil {
+		n.core.Stop()
+	}
+
+}
