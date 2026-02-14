@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"meshnet/core"
+	"meshnet/dht"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,12 +28,21 @@ func main() {
 
 	time.Sleep(3 * time.Second)
 	fmt.Println("Bootstrap complete. Node is live on mesh.")
-	fmt.Println("Press Ctrl+C to stop.")
+
+	d := dht.New(node.Address())
+	err = d.Start()
+	if err != nil {
+		fmt.Println("Failed to start DHT:", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Meshnet running. Press Ctrl+C to stop.")
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	fmt.Println("Shutting down...")
+	d.Stop()
 	node.Stop()
 }
