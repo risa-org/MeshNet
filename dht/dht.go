@@ -11,6 +11,7 @@ const DHTPort = 9001
 
 type DHT struct {
 	address  string
+	port     int
 	table    *RoutingTable
 	store    *Store
 	listener net.Listener
@@ -19,9 +20,13 @@ type DHT struct {
 	mu       sync.RWMutex
 }
 
-func New(address string, selfID NodeID) *DHT {
+func New(address string, selfID NodeID, port int) *DHT {
+	if port == 0 {
+		port = DHTPort
+	}
 	return &DHT{
 		address: address,
+		port:    port,
 		table:   NewRoutingTable(selfID),
 		store:   NewStore(),
 		done:    make(chan struct{}),
@@ -29,7 +34,7 @@ func New(address string, selfID NodeID) *DHT {
 }
 
 func (d *DHT) Start() error {
-	listenAddr := fmt.Sprintf("[::]:%d", DHTPort)
+	listenAddr := fmt.Sprintf("[::]:%d", d.port)
 
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
@@ -219,4 +224,35 @@ func (d *DHT) Stop() {
 	d.store.Stop()
 	d.wg.Wait()
 	fmt.Println("DHT Stopped")
+}
+
+func (d *DHT) PingPeer(addr string) error {
+	self := Contact{
+		ID:      d.table.self,
+		Address: net.ParseIP(d.address),
+		Port:    d.port,
+	}
+
+	pong, err := SendPing(addr, self)
+	if err != nil {
+		return fmt.Errorf("ping failed: %w", err)
+	}
+
+	id, err := NodeIDFromHex(pong.SenderID)
+	if err != nil {
+		return fmt.Errorf("invalid sender ID: %w", err)
+	}
+
+	d.table.Add(Contact{
+		ID:      id,
+		Address: net.ParseIP(pong.SenderAddr),
+		Port:    pong.SenderPort,
+	})
+
+	fmt.Printf("DHT: pinged %s — got contact %s\n", addr, pong.SenderID[:8])
+	return nil
+}
+
+func (d *DHT) TableSize() int {
+	return d.table.Size()
 }

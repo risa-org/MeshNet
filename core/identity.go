@@ -14,10 +14,16 @@ type Identity struct {
 	PublicKey  string `json:"public_key"`
 }
 
-const identityFile = "identity.json"
+func identityFilePath() string {
+	path := os.Getenv("IDENTITY")
+	if path == "" {
+		return "identity.json"
+	}
+	return path
+}
 
 func loadOrCreateIdentity() (ed25519.PublicKey, ed25519.PrivateKey, error) {
-	data, err := os.ReadFile(identityFile)
+	data, err := os.ReadFile(identityFilePath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return createAndSaveIdentity()
@@ -64,10 +70,10 @@ func createAndSaveIdentity() (ed25519.PublicKey, ed25519.PrivateKey, error) {
 		return nil, nil, fmt.Errorf("failed to encode identity: %w", err)
 	}
 
-	if err := os.WriteFile(identityFile, data, 0600); err != nil {
+	if err := os.WriteFile(identityFilePath(), data, 0600); err != nil {
 		return nil, nil, fmt.Errorf("failed to save identity: %w", err)
 	}
 
-	fmt.Println("Fresh identity generated and saved to", identityFile)
+	fmt.Println("Fresh identity generated and saved to", identityFilePath())
 	return pubKey, privKey, nil
 }

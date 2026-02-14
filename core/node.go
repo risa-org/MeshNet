@@ -1,6 +1,7 @@
 package core
 
 import (
+	"crypto/ed25519"
 	"fmt"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ type Node struct {
 	admin   *admin.AdminSocket
 	logger  *log.Logger
 	address string
+	privKey ed25519.PrivateKey
 }
 
 func NewNode() *Node {
@@ -31,6 +33,7 @@ func (n *Node) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to load identity %w", err)
 	}
+	n.privKey = privKey
 
 	cert, err := generateSelfSignedCert(pubKey, privKey)
 	if err != nil {
@@ -96,4 +99,8 @@ func (n *Node) Stop() {
 		n.core.Stop()
 	}
 
+}
+
+func (n *Node) PrivateKey() ed25519.PrivateKey {
+	return n.privKey
 }
