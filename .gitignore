@@ -5,6 +5,7 @@ meshnet
 # the identity file contains your PRIVATE KEY
 # never ever commit this to a public repo
 identity.json
+identity2.json
 
 # Go build cache
 *.test

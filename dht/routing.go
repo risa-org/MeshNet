@@ -92,14 +92,11 @@ func NewRoutingTable(self NodeID) *RoutingTable {
 
 func (rt *RoutingTable) Add(c Contact) {
 	if c.ID == rt.self {
-		fmt.Println("DEBUG Add: skipping self")
 		return
 	}
 
 	idx := rt.self.bucketIndex(c.ID)
-	fmt.Printf("DEBUG Add: id=%s idx=%d\n", c.ID.String()[:8], idx)
 	if idx < 0 {
-		fmt.Println("DEBUG Add: negative index, skipping")
 		return
 	}
 
@@ -107,7 +104,6 @@ func (rt *RoutingTable) Add(c Contact) {
 	defer rt.mu.Unlock()
 
 	bucket := rt.buckets[idx]
-	fmt.Printf("DEBUG Add: bucket %d has %d entries\n", idx, len(bucket))
 	for i, existing := range bucket {
 		if existing.ID == c.ID {
 			rt.buckets[idx] = append(

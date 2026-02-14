@@ -119,7 +119,7 @@ func (d *DHT) handlePing(conn net.Conn, msg Message) {
 	pongBody, _ := json.Marshal(PongBody{
 		SenderID:   d.table.self.String(),
 		SenderAddr: d.address,
-		SenderPort: DHTPort,
+		SenderPort: d.port,
 	})
 
 	writeMessage(conn, Message{
@@ -243,10 +243,20 @@ func (d *DHT) PingPeer(addr string) error {
 		return fmt.Errorf("invalid sender ID: %w", err)
 	}
 
+	// parse the host from the addr we actually dialed
+	// this is the address we KNOW works — we just connected to it
+	// don't use pong.SenderAddr which might be an unreachable Yggdrasil address
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid addr: %w", err)
+	}
+	var dialPort int
+	fmt.Sscanf(portStr, "%d", &dialPort)
+
 	d.table.Add(Contact{
 		ID:      id,
-		Address: net.ParseIP(pong.SenderAddr),
-		Port:    pong.SenderPort,
+		Address: net.ParseIP(host),
+		Port:    dialPort,
 	})
 
 	fmt.Printf("DHT: pinged %s — got contact %s\n", addr, pong.SenderID[:8])

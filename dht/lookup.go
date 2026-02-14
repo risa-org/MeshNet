@@ -121,7 +121,9 @@ func (d *DHT) LookupNode(target NodeID) []Contact {
 
 				contacts, err := SendFindNode(c.Addr(), d.table.self, target)
 				if err != nil {
-					d.table.Remove(c.ID)
+					// only remove on connection refused — not timeouts or other errors
+					// a slow node shouldn't be permanently removed
+					fmt.Printf("DHT: FindNode to %s failed: %v\n", c.Addr(), err)
 					return
 				}
 
@@ -162,6 +164,19 @@ func (d *DHT) LookupNode(target NodeID) []Contact {
 }
 
 func (d *DHT) LookupValue(name string, groupKey string) (*Record, error) {
+
+	// check local store first before querying network
+	var localRecord Record
+	var localFound bool
+	if groupKey == "" {
+		localRecord, localFound = d.store.GetPublic(name)
+	} else {
+		localRecord, localFound = d.store.GetForGroup(name, groupKey)
+	}
+	if localFound {
+		return &localRecord, nil
+	}
+
 	target := RecordID(name)
 
 	seeds := d.table.Closest(target, K)
@@ -250,11 +265,18 @@ func (d *DHT) Announce(record Record) error {
 		return fmt.Errorf("invalid record: %w", err)
 	}
 
+	// store locally first — always
+	if err := d.store.Put(record); err != nil {
+		return fmt.Errorf("failed to store locally: %w", err)
+	}
+
+	// then distribute to closest nodes
 	target := RecordID(record.Name)
 	closest := d.LookupNode(target)
 
 	if len(closest) == 0 {
-		return d.store.Put(record)
+		fmt.Printf("DHT: announced %q locally only\n", record.Name)
+		return nil
 	}
 
 	var wg sync.WaitGroup
@@ -275,9 +297,6 @@ func (d *DHT) Announce(record Record) error {
 	}
 
 	wg.Wait()
-
-	d.store.Put(record)
-
 	fmt.Printf("DHT: announced %q on %d nodes\n", record.Name, stored)
 	return nil
 }

@@ -37,7 +37,6 @@ func (r *Record) SigningPayload() []byte {
 		PublicKey string   `json:"public_key"`
 		Services  []string `json:"services"`
 		GroupKey  string   `json:"group_key"`
-		Signature string   `json:"signature"`
 		Expires   int64    `json:"expires"`
 	}{
 		Name:      r.Name,
