@@ -6,6 +6,7 @@ meshnet
 # never ever commit this to a public repo
 identity.json
 identity2.json
+peers.json
 
 # Go build cache
 *.test
