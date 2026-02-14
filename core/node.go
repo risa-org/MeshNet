@@ -59,6 +59,26 @@ func (n *Node) AddPeer(peerURL string) error {
 	return n.core.AddPeer(u, "")
 }
 
+func (n *Node) Bootstrap() {
+	peers := []string{
+		"tls://uk.lhc.network:17002",
+		"tls://de.lhc.network:17002",
+		"tls://fr.lhc.network:17002",
+		"tls://au.lhc.network:17002",
+		"tls://pl.lhc.network:17002",
+	}
+	for _, peer := range peers {
+		go func(p string) {
+			err := n.AddPeer(p)
+			if err != nil {
+				fmt.Printf("Could not add peer %s : %v\n", p, err)
+			} else {
+				fmt.Printf("Peer Added %s\n", p)
+			}
+		}(peer)
+	}
+}
+
 func (n *Node) Address() string {
 	return n.address
 }
