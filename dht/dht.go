@@ -11,6 +11,7 @@ const DHTPort = 9001
 type DHT struct {
 	address  string
 	table    *RoutingTable
+	store    *Store
 	listener net.Listener
 	wg       sync.WaitGroup
 	done     chan struct{}
@@ -21,6 +22,7 @@ func New(address string, selfID NodeID) *DHT {
 	return &DHT{
 		address: address,
 		table:   NewRoutingTable(selfID),
+		store:   NewStore(),
 		done:    make(chan struct{}),
 	}
 }
@@ -39,6 +41,7 @@ func (d *DHT) Start() error {
 	d.wg.Add(1)
 	go d.acceptLoop()
 
+	d.store.Start()
 	return nil
 }
 
@@ -80,6 +83,7 @@ func (d *DHT) Stop() {
 		d.listener.Close()
 	}
 
+	d.store.Stop()
 	d.wg.Wait()
 	fmt.Println("DHT Stopped")
 }
