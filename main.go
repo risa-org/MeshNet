@@ -29,7 +29,12 @@ func main() {
 	time.Sleep(3 * time.Second)
 	fmt.Println("Bootstrap complete. Node is live on mesh.")
 
-	d := dht.New(node.Address())
+	selfID, err := dht.NodeIDFromHex(node.PublicKey())
+	if err != nil {
+		fmt.Println("Failed to parse node ID:", err)
+		os.Exit(1)
+	}
+	d := dht.New(node.Address(), selfID)
 	err = d.Start()
 	if err != nil {
 		fmt.Println("Failed to start DHT:", err)

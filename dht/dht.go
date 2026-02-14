@@ -10,15 +10,17 @@ const DHTPort = 9001
 
 type DHT struct {
 	address  string
+	table    *RoutingTable
 	listener net.Listener
 	wg       sync.WaitGroup
 	done     chan struct{}
 	mu       sync.RWMutex
 }
 
-func New(address string) *DHT {
+func New(address string, selfID NodeID) *DHT {
 	return &DHT{
 		address: address,
+		table:   NewRoutingTable(selfID),
 		done:    make(chan struct{}),
 	}
 }
