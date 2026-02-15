@@ -64,20 +64,24 @@ func (n *Node) AddPeer(peerURL string) error {
 
 func (n *Node) Bootstrap() {
 	peers := []string{
-		"tls://uk.lhc.network:17002",
-		"tls://de.lhc.network:17002",
-		"tls://fr.lhc.network:17002",
-		"tls://au.lhc.network:17002",
-		"tls://pl.lhc.network:17002",
+		"tls://62.210.85.80:39575",  // france
+		"tls://51.15.204.214:54321", // france
+		"tls://n.ygg.yt:443",        // germany
+		"tls://ygg7.mk16.de:1338?key=000000086278b5f3ba1eb63acb5b7f6e406f04ce83990dee9c07f49011e375ae", // austria
+		"tls://syd.joel.net.au:8443", // australia
+		"tls://95.217.35.92:1337",    // finland
+		"tls://37.205.14.171:993",    // czechia
 	}
 	for _, peer := range peers {
 		go func(p string) {
-			err := n.AddPeer(p)
+			u, err := url.Parse(p)
 			if err != nil {
-				fmt.Printf("Could not add peer %s : %v\n", p, err)
-			} else {
-				fmt.Printf("Peer Added %s\n", p)
+				return
 			}
+			if err := n.core.AddPeer(u, ""); err != nil {
+				return
+			}
+			fmt.Println("Peer Added", p)
 		}(peer)
 	}
 }

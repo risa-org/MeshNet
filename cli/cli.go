@@ -70,6 +70,8 @@ func cmdStart(args []string) {
 	identity := fs.String("identity", "identity.json", "Path to identity file")
 	peer := fs.String("peer", "", "Bootstrap peer address e.g. [::1]:9002")
 	services := fs.String("services", "", "Comma-separated services e.g. ssh:22,http:80")
+	tun := fs.Bool("tun", false, "Create TUN interface for browser/OS access (requires admin)")
+	yggBin := fs.String("yggdrasil", "bin/yggdrasil.exe", "Path to yggdrasil binary")
 	fs.Usage = func() {
 		fmt.Println(`Start the MeshNet node
 
@@ -120,6 +122,39 @@ EXAMPLES:
 	if err := d.Start(); err != nil {
 		fmt.Println("Failed to start DHT:", err)
 		os.Exit(1)
+	}
+
+	// TUN mode — start Yggdrasil subprocess for OS-level mesh access
+	var yggSvc *core.YggService
+	if *tun {
+		fmt.Println("\nTUN mode enabled — starting Yggdrasil for OS integration...")
+
+		yggSvc = core.NewYggService(*yggBin)
+
+		// only write config if installed service doesn't exist
+		if !yggSvc.IsInstalled() {
+			if err := yggSvc.WriteConfig(core.PrivKeyHex(node.PrivateKey())); err != nil {
+				fmt.Println("Failed to write Yggdrasil config:", err)
+				yggSvc = nil
+			}
+		}
+
+		if yggSvc != nil {
+			if err := yggSvc.Start(); err != nil {
+				fmt.Println("Failed to start Yggdrasil TUN:", err)
+				fmt.Println("Try: Run PowerShell as Administrator")
+				yggSvc = nil
+			} else {
+				// wait for TUN routing to fully stabilize before proceeding
+				// the adapter is created but routes take a moment to activate
+				fmt.Println("Waiting for TUN routing to stabilize...")
+				time.Sleep(5 * time.Second)
+				if tunAddr, err := yggSvc.GetAddress(); err == nil {
+					fmt.Printf("TUN interface active — mesh address: %s\n", tunAddr)
+					fmt.Println("Browser can now reach Yggdrasil addresses directly")
+				}
+			}
+		}
 	}
 
 	// bootstrap DHT routing table
@@ -195,6 +230,12 @@ EXAMPLES:
 
 	fmt.Println("\nShutting down...")
 	reannouncer.Stop()
+
+	// stop yggdrasil subprocess if we started it
+	if yggSvc != nil {
+		yggSvc.Stop()
+	}
+
 	d.SavePeers()
 	d.Stop()
 	node.Stop()

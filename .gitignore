@@ -1,17 +1,30 @@
-# compiled binaries
+# Private keys — NEVER commit
+identity.json
+identity*.json
+
+# Generated at runtime
+yggdrasil-meshnet.conf
+peers.json
+
+# Compiled binaries
 meshnet.exe
 meshnet
+*.exe
 
-# the identity file contains your PRIVATE KEY
-# never ever commit this to a public repo
-identity.json
-identity2.json
-peers.json
+# Yggdrasil binaries — too large, not our code
+bin/wintun.dll
+bin/yggdrasil.exe
 
 # Go build cache
 *.test
-*.out
 
-# Windows stuff
+# OS garbage
+.DS_Store
 Thumbs.db
 desktop.ini
+
+# Editor garbage
+.vscode/
+.idea/
+*.swp
+*.swo

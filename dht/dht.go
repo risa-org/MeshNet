@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-const DHTPort = 9001
+const DHTPort = 9002
 
 type DHT struct {
 	address  string
