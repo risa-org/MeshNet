@@ -7,16 +7,14 @@ import (
 	"time"
 )
 
+// RegisterOptions defines the parameters for creating a DHT record
 type RegisterOptions struct {
-	Name string
-
-	Address string
-
-	Services []string
-
-	GroupKey string
-
+	Name       string
+	Address    string
+	Services   []string
+	GroupKey   string
 	PrivateKey ed25519.PrivateKey
+	TTL        time.Duration // optional — 0 means use default RecordTTL
 }
 
 func CreateRecord(opts RegisterOptions) (Record, error) {
@@ -32,13 +30,19 @@ func CreateRecord(opts RegisterOptions) (Record, error) {
 
 	pubKey := opts.PrivateKey.Public().(ed25519.PublicKey)
 
+	// use custom TTL if provided, otherwise default
+	ttl := opts.TTL
+	if ttl == 0 {
+		ttl = RecordTTL
+	}
+
 	record := Record{
 		Name:      opts.Name,
 		Address:   opts.Address,
 		PublicKey: hex.EncodeToString(pubKey),
 		Services:  opts.Services,
 		GroupKey:  opts.GroupKey,
-		Expires:   time.Now().Add(RecordTTL).Unix(),
+		Expires:   time.Now().Add(ttl).Unix(),
 	}
 
 	payload := record.SigningPayload()

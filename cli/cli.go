@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 
 	"meshnet/core"
 	"meshnet/dht"
+	"meshnet/pairing"
 )
 
 // Run is the entry point for the CLI
@@ -37,6 +40,10 @@ func Run() {
 		cmdPeer(os.Args[2:])
 	case "help", "--help", "-h":
 		printHelp()
+	case "pair":
+		cmdPair(os.Args[2:])
+	case "contacts":
+		cmdContacts(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printHelp()
@@ -53,9 +60,11 @@ USAGE:
 COMMANDS:
   start     Start the MeshNet node
   lookup    Look up a name on the mesh
-  status    Show this node's status and identity
-  peers     List known peers
-  peer      Manage peers (add/remove)
+  pair      Pair with another device
+  contacts  List paired devices
+  status    Show this node's status
+  peers     List known DHT peers
+  peer      Manage peers (add/remove/list)
   help      Show this help
 
 Run 'meshnet <command> --help' for command-specific flags.`)
@@ -276,6 +285,16 @@ EXAMPLES:
 		os.Exit(1)
 	}
 
+	contacts, err := pairing.LoadContacts()
+	if err == nil {
+		if c := contacts.FindByName(name); c != nil {
+			fmt.Printf("\nFound in contacts: %s\n", name)
+			fmt.Printf("  Address:  %s\n", c.Address)
+			fmt.Printf("  Paired:   %s ago\n", time.Since(c.PairedAt).Round(time.Minute))
+			return
+		}
+	}
+
 	url := fmt.Sprintf("http://127.0.0.1:%d/lookup?name=%s&group=%s",
 		dht.APIPort, name, *group)
 
@@ -464,4 +483,175 @@ USAGE:
 		fmt.Println("Use: add, list, or clear")
 		os.Exit(1)
 	}
+}
+
+func cmdPair(args []string) {
+	fs := flag.NewFlagSet("pair", flag.ExitOnError)
+	fs.Usage = func() {
+		fmt.Println(`Pair with another MeshNet device
+
+USAGE:
+  meshnet pair              Generate a pairing code (you share it)
+  meshnet pair MESH-XXXX    Join using a code from another device
+
+EXAMPLES:
+  meshnet pair
+  meshnet pair MESH-4729`)
+	}
+	fs.Parse(args)
+
+	if !dht.IsNodeRunning() {
+		fmt.Println("Error: no MeshNet node is running.")
+		fmt.Println("Start one first with: meshnet start")
+		os.Exit(1)
+	}
+
+	// get our own info from the running node
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", dht.APIPort))
+	if err != nil {
+		fmt.Println("Failed to reach running node:", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	var status map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		fmt.Println("Failed to read node status:", err)
+		os.Exit(1)
+	}
+
+	nodeName := fmt.Sprintf("%v", status["name"])
+	nodeAddress := fmt.Sprintf("%v", status["address"])
+
+	// we need private key for signing — read from identity file
+	privKey, err := loadPrivateKey()
+	if err != nil {
+		fmt.Println("Failed to load private key:", err)
+		os.Exit(1)
+	}
+
+	// load or create contact book
+	contacts, err := pairing.LoadContacts()
+	if err != nil {
+		fmt.Println("Failed to load contacts:", err)
+		os.Exit(1)
+	}
+
+	// start a minimal DHT client for pairing operations
+	d, cleanup, err := startPairingDHT(nodeAddress, privKey)
+	if err != nil {
+		fmt.Println("Failed to connect to DHT:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
+	var contact *pairing.Contact
+
+	if fs.NArg() == 0 {
+		// no code provided — we are the initiator
+		contact, err = pairing.Initiate(d, nodeName, nodeAddress, privKey)
+	} else {
+		// code provided — we are the joiner
+		code := fs.Arg(0)
+		contact, err = pairing.Join(d, nodeName, nodeAddress, privKey, code)
+	}
+
+	if err != nil {
+		fmt.Println("Pairing failed:", err)
+		os.Exit(1)
+	}
+
+	// save to contacts
+	contacts.Add(*contact)
+	if err := contacts.Save(); err != nil {
+		fmt.Println("Warning: could not save contact:", err)
+	} else {
+		fmt.Printf("Saved %s to contacts.\n", contact.Name)
+	}
+}
+
+// loadPrivateKey reads the private key from identity.json
+func loadPrivateKey() (ed25519.PrivateKey, error) {
+	data, err := os.ReadFile("identity.json")
+	if err != nil {
+		return nil, fmt.Errorf("could not read identity.json: %w", err)
+	}
+
+	var identity struct {
+		PrivateKey string `json:"private_key"`
+	}
+	if err := json.Unmarshal(data, &identity); err != nil {
+		return nil, fmt.Errorf("could not parse identity.json: %w", err)
+	}
+
+	keyBytes, err := hex.DecodeString(identity.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid private key: %w", err)
+	}
+
+	return ed25519.PrivateKey(keyBytes), nil
+}
+
+// startPairingDHT creates a minimal DHT instance on a temporary port
+// for use by the pair command — separate from the running node's DHT
+func startPairingDHT(address string, privKey ed25519.PrivateKey) (*dht.DHT, func(), error) {
+	pubKey := privKey.Public().(ed25519.PublicKey)
+	selfID, err := dht.NodeIDFromBytes(pubKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create node ID: %w", err)
+	}
+
+	// use port 9010 for pairing — avoids conflict with main DHT on 9002
+	d := dht.New(address, selfID, 9010)
+	if err := d.Start(); err != nil {
+		return nil, nil, fmt.Errorf("failed to start pairing DHT: %w", err)
+	}
+
+	// bootstrap from the running node's API — it knows peers
+	client := &http.Client{Timeout: 5 * time.Second}
+	peersResp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/peers", dht.APIPort))
+	if err == nil {
+		defer peersResp.Body.Close()
+		var peers []dht.PeerInfo
+		if json.NewDecoder(peersResp.Body).Decode(&peers) == nil {
+			for _, p := range peers {
+				addr := fmt.Sprintf("[%s]:%d", p.Addr, p.Port)
+				d.PingPeer(addr)
+			}
+		}
+	}
+
+	cleanup := func() {
+		d.Stop()
+	}
+
+	return d, cleanup, nil
+}
+
+func cmdContacts(args []string) {
+	fs := flag.NewFlagSet("contacts", flag.ExitOnError)
+	fs.Parse(args)
+
+	contacts, err := pairing.LoadContacts()
+	if err != nil {
+		fmt.Println("Failed to load contacts:", err)
+		os.Exit(1)
+	}
+
+	all := contacts.All()
+	if len(all) == 0 {
+		fmt.Println("No contacts yet.")
+		fmt.Println("Pair with another device using: meshnet pair")
+		return
+	}
+
+	fmt.Printf("\nContacts (%d)\n", len(all))
+	fmt.Println("──────────────────────────────────────────────────")
+	for _, c := range all {
+		fmt.Printf("  %-20s  %s\n", c.Name, c.Address)
+		fmt.Printf("  %-20s  paired %s ago\n", "",
+			time.Since(c.PairedAt).Round(time.Minute))
+	}
+	fmt.Println("──────────────────────────────────────────────────")
 }

@@ -1,3 +1,6 @@
+# contacts
+contacts.json
+
 # Private keys — NEVER commit
 identity.json
 identity*.json

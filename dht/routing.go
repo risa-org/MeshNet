@@ -167,3 +167,13 @@ func (rt *RoutingTable) Size() int {
 	}
 	return total
 }
+
+// NodeIDFromBytes creates a NodeID from raw public key bytes
+func NodeIDFromBytes(pubKey []byte) (NodeID, error) {
+	if len(pubKey) != 32 {
+		return NodeID{}, fmt.Errorf("public key must be 32 bytes, got %d", len(pubKey))
+	}
+	var id NodeID
+	copy(id[:], pubKey)
+	return id, nil
+}
