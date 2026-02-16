@@ -189,6 +189,12 @@ MeshNet is designed on three principles:
 
 The goal is not to replace the internet, but to provide a private network layer that anyone can use without trusting a company.
 
+## License
+
+MIT License - see LICENSE file for details.
+
+MeshNet is built on [Yggdrasil Network](https://github.com/yggdrasil-network/yggdrasil-go), which is licensed under LGPL v3.
+
 ---
 
 **Status**: Early Development - Not Production Ready
