@@ -13,6 +13,19 @@ MeshNet lets you create private networks between devices using names instead of 
 - **Permanent identity**: Your identity is derived from your cryptographic key, not assigned by a server
 - **Fully decentralized**: No central servers, no company dependency
 
+## Built On Yggdrasil
+
+MeshNet is built as a layer on top of [Yggdrasil Network](https://yggdrasil-network.github.io/), an encrypted IPv6 overlay network. Yggdrasil provides:
+
+- End-to-end encrypted mesh routing
+- Permanent cryptographic identities
+- NAT traversal via mesh connectivity
+- Decentralized network topology
+
+MeshNet adds human-readable names, device pairing, and private group functionality to the Yggdrasil mesh. We use Yggdrasil as a library and never modify its source code - all improvements made by the Yggdrasil team automatically benefit MeshNet users.
+
+**Credit**: The Yggdrasil Network project and its contributors have built the foundation that makes MeshNet possible.
+
 ## Architecture
 
 MeshNet is a three-layer system:
@@ -159,6 +172,12 @@ These must be addressed before any production use.
 - `dev-docs/meshnet-build.md` - Build history and technical details
 - `dev-docs/meshnet-context.md` - Developer onboarding guide
 - `dev-docs/meshnet-problems.md` - Known issues and limitations
+
+## Related Projects
+
+- [Yggdrasil Network](https://yggdrasil-network.github.io/) - The mesh network layer MeshNet is built on
+- [Yggdrasil GitHub](https://github.com/yggdrasil-network/yggdrasil-go) - Yggdrasil source code
+
 
 ## Philosophy
 
