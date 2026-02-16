@@ -2,29 +2,31 @@
 
 A decentralized peer-to-peer network layer that adds human-readable names and private groups to the Yggdrasil mesh network. No central servers. No company in the middle. Works through NAT.
 
-## What It Does
+## What This Is
 
-MeshNet lets you create private networks between devices using names instead of cryptographic addresses:
+MeshNet is a **name registry and group management system** for the Yggdrasil mesh network. 
 
-- **Human-readable names**: Register as `alice` instead of `200:a1b2:c3d4:...`
-- **Device pairing**: QR code or short code pairing between devices
-- **Private groups**: Your network is invisible to non-members
-- **NAT traversal**: Works behind routers without port forwarding
-- **Permanent identity**: Your identity is derived from your cryptographic key, not assigned by a server
-- **Fully decentralized**: No central servers, no company dependency
+Yggdrasil already handles all the routing, encryption, and NAT traversal. MeshNet adds:
+
+- **Human-readable names**: Map `alice` to Yggdrasil address `200:a1b2:c3d4:...`
+- **Private groups**: Scope names to specific groups (your `alice` ≠ another group's `alice`)
+- **Device pairing**: Exchange addresses via short codes instead of manual configuration
+- **Service discovery**: Announce what services you're running (ssh, http, etc.)
+
+**MeshNet does not handle routing.** All packet routing, encryption, and mesh connectivity is handled by Yggdrasil. MeshNet only provides a distributed name→address mapping layer via Kademlia DHT.
 
 ## Built On Yggdrasil
 
-MeshNet is built as a layer on top of [Yggdrasil Network](https://yggdrasil-network.github.io/), an encrypted IPv6 overlay network. Yggdrasil provides:
+MeshNet runs entirely on top of [Yggdrasil Network](https://yggdrasil-network.github.io/). Yggdrasil provides:
 
 - End-to-end encrypted mesh routing
-- Permanent cryptographic identities
+- Permanent cryptographic identities (IPv6 addresses)
 - NAT traversal via mesh connectivity
-- Decentralized network topology
+- All actual network transport
 
-MeshNet adds human-readable names, device pairing, and private group functionality to the Yggdrasil mesh. We use Yggdrasil as a library and never modify its source code - all improvements made by the Yggdrasil team automatically benefit MeshNet users.
+MeshNet uses Yggdrasil as a library for mesh connectivity, then runs a Kademlia DHT over those Yggdrasil connections to provide name registration and lookup.
 
-**Credit**: The Yggdrasil Network project and its contributors have built the foundation that makes MeshNet possible.
+**Credit**: The Yggdrasil Network project provides the entire networking foundation. MeshNet only adds a naming layer on top.
 
 ## Architecture
 
