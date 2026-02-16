@@ -82,17 +82,6 @@ meshnet.exe peers
 meshnet.exe peer add "[200:x:x:x:x:x:x:x]:9002"
 ```
 
-## How It's Different
-
-| Feature | ZeroTier | Tailscale | Yggdrasil | MeshNet |
-|---------|----------|-----------|-----------|---------|
-| No central servers | No | No | Yes | Yes |
-| Works through NAT | Yes | Yes | Partial | Yes |
-| Permanent self-owned identity | No | No | Yes | Yes |
-| Human-readable names | Yes | Yes | No | Yes |
-| Private groups | Yes | Yes | No | Yes |
-| Survives company shutdown | No | No | Yes | Yes |
-
 ## Technical Details
 
 ### Identity
