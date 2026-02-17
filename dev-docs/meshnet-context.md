@@ -562,3 +562,33 @@ http://[200:b48d:469e:c7c7:3e13:c41d:ba4d:d2b8]  ← Yggdrasil search engine
 ---
 
 *Continue in new thread. Apply all fixes listed above first, then complete and test pairing, then Phase 5 DNS resolver.*
+
+---
+
+## CRITICAL ARCHITECTURE FIX — Added Feb 16
+
+### Two Yggdrasil Instances Routing Conflict
+
+**Problem:** When running in TUN mode, both the embedded Yggdrasil library AND the subprocess were connecting to bootstrap peers with the same keypair. Remote nodes saw conflicting routing announcements from the same key and dropped all traffic. TUN adapter showed correct address and peers showed `"up": true` but `ReceivedBytes` was always 0 — packets sent but nothing returned.
+
+**Symptom:** ping times out, curl times out, browser can't reach anything. Everything LOOKS correct (peers up, route exists, address assigned) but no traffic flows.
+
+**Root cause confirmed by:** Running subprocess alone (`.\bin\yggdrasil.exe -useconffile yggdrasil-meshnet.conf`) — ping worked immediately. Running full MeshNet — ping failed. Same key, two instances, routing conflict.
+
+**Fix applied:** In TUN mode, embedded library connects to NO peers. Subprocess handles all routing. Embedded library runs silently for DHT communication only.
+
+**In `core/node.go`:** Split `Bootstrap()` into empty stub + `BootstrapPeers()` method.
+
+**In `cli/cli.go` `cmdStart`:**
+```go
+if *tun {
+    fmt.Println("TUN mode — mesh routing handled by subprocess")
+} else {
+    fmt.Println("Connecting to Yggdrasil peers...")
+    node.BootstrapPeers()
+    time.Sleep(3 * time.Second)
+    fmt.Println("Connected to Yggdrasil mesh.")
+}
+```
+
+**This fix must never be reverted.** TUN mode and embedded peer connections cannot coexist.

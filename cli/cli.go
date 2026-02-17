@@ -115,10 +115,16 @@ EXAMPLES:
 	fmt.Println("Public Key:", node.PublicKey())
 
 	// connect to yggdrasil bootstrap peers
-	fmt.Println("Connecting to Yggdrasil peers...")
-	node.Bootstrap()
-	time.Sleep(3 * time.Second)
-	fmt.Println("Connected to Yggdrasil mesh.")
+	// in TUN mode the subprocess handles all routing — don't connect embedded library to peers
+	// two instances with same keypair on same mesh causes routing conflicts
+	if *tun {
+		fmt.Println("TUN mode — mesh routing handled by subprocess")
+	} else {
+		fmt.Println("Connecting to Yggdrasil peers...")
+		node.BootstrapPeers()
+		time.Sleep(3 * time.Second)
+		fmt.Println("Connected to Yggdrasil mesh.")
+	}
 
 	// set up DHT
 	selfID, err := dht.NodeIDFromHex(node.PublicKey())

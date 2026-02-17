@@ -63,14 +63,20 @@ func (n *Node) AddPeer(peerURL string) error {
 }
 
 func (n *Node) Bootstrap() {
+	// peers are added externally only when NOT in TUN mode
+	// in TUN mode the subprocess handles all routing
+	// calling this when subprocess is running causes routing conflicts
+}
+
+func (n *Node) BootstrapPeers() {
 	peers := []string{
-		"tls://62.210.85.80:39575",  // france
-		"tls://51.15.204.214:54321", // france
-		"tls://n.ygg.yt:443",        // germany
-		"tls://ygg7.mk16.de:1338?key=000000086278b5f3ba1eb63acb5b7f6e406f04ce83990dee9c07f49011e375ae", // austria
-		"tls://syd.joel.net.au:8443", // australia
-		"tls://95.217.35.92:1337",    // finland
-		"tls://37.205.14.171:993",    // czechia
+		"tls://62.210.85.80:39575",
+		"tls://51.15.204.214:54321",
+		"tls://n.ygg.yt:443",
+		"tls://ygg7.mk16.de:1338?key=000000086278b5f3ba1eb63acb5b7f6e406f04ce83990dee9c07f49011e375ae",
+		"tls://syd.joel.net.au:8443",
+		"tls://95.217.35.92:1337",
+		"tls://37.205.14.171:993",
 	}
 	for _, peer := range peers {
 		go func(p string) {
@@ -85,7 +91,6 @@ func (n *Node) Bootstrap() {
 		}(peer)
 	}
 }
-
 func (n *Node) Address() string {
 	return n.address
 }
