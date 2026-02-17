@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-const DHTPort = 9002
+const DHTPort = 9001
 
 type DHT struct {
 	address  string
@@ -42,8 +42,6 @@ func (d *DHT) Start() error {
 	}
 	d.listener = listener
 
-	fmt.Printf("DHT listening on %s\n", listenAddr)
-
 	d.wg.Add(1)
 	go d.acceptLoop()
 
@@ -53,17 +51,14 @@ func (d *DHT) Start() error {
 
 func (d *DHT) acceptLoop() {
 	defer d.wg.Done()
-	fmt.Println("DHT accept loop started")
 
 	for {
 		conn, err := d.listener.Accept()
 		if err != nil {
 			select {
 			case <-d.done:
-				fmt.Println("DHT accept loop stopping")
 				return
 			default:
-				fmt.Println("DHT accept error:", err)
 				continue
 			}
 		}
@@ -83,21 +78,14 @@ func (d *DHT) handleConnection(conn net.Conn) {
 	}
 
 	switch msg.Type {
-
 	case MsgPing:
 		d.handlePing(conn, msg)
-
 	case MsgFindNode:
 		d.handleFindNode(conn, msg)
-
 	case MsgStore:
 		d.handleStore(conn, msg)
-
 	case MsgFindValue:
 		d.handleFindValue(conn, msg)
-
-	default:
-		// unknown message type — ignore silently
 	}
 }
 
@@ -134,11 +122,6 @@ func (d *DHT) handleFindNode(conn net.Conn, msg Message) {
 		return
 	}
 
-	senderID, err := NodeIDFromHex(req.SenderID)
-	if err == nil {
-		_ = senderID
-	}
-
 	targetID, err := NodeIDFromHex(req.TargetID)
 	if err != nil {
 		return
@@ -164,7 +147,6 @@ func (d *DHT) handleStore(_ net.Conn, msg Message) {
 	if err := json.Unmarshal(msg.Body, &req); err != nil {
 		return
 	}
-
 	d.store.Put(req.Record)
 }
 
@@ -213,17 +195,12 @@ func (d *DHT) handleFindValue(conn net.Conn, msg Message) {
 }
 
 func (d *DHT) Stop() {
-	fmt.Println("DHT Stopping")
-
 	close(d.done)
-
 	if d.listener != nil {
 		d.listener.Close()
 	}
-
 	d.store.Stop()
 	d.wg.Wait()
-	fmt.Println("DHT Stopped")
 }
 
 func (d *DHT) PingPeer(addr string) error {
@@ -243,9 +220,6 @@ func (d *DHT) PingPeer(addr string) error {
 		return fmt.Errorf("invalid sender ID: %w", err)
 	}
 
-	// parse the host from the addr we actually dialed
-	// this is the address we KNOW works — we just connected to it
-	// don't use pong.SenderAddr which might be an unreachable Yggdrasil address
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Errorf("invalid addr: %w", err)
@@ -259,7 +233,6 @@ func (d *DHT) PingPeer(addr string) error {
 		Port:    dialPort,
 	})
 
-	fmt.Printf("DHT: pinged %s — got contact %s\n", addr, pong.SenderID[:8])
 	return nil
 }
 

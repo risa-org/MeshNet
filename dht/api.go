@@ -7,16 +7,15 @@ import (
 	"time"
 )
 
-// APIPort is the local HTTP API port
-// only listens on localhost — not exposed to network
+// APIPort is the local HTTP API port — only listens on localhost
 const APIPort = 9099
 
-// StartAPI launches a local HTTP API for CLI commands to talk to
-// listens only on localhost so it's never exposed to the mesh
+// StartAPI launches a local HTTP API for CLI commands to communicate with
+// the running node. Never exposed to the mesh network.
 func (d *DHT) StartAPI(nodeName string, nodeAddress string, nodePublicKey string) {
 	mux := http.NewServeMux()
 
-	// GET /status — node identity and routing table info
+	// GET /status
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"name":       nodeName,
@@ -27,7 +26,7 @@ func (d *DHT) StartAPI(nodeName string, nodeAddress string, nodePublicKey string
 		})
 	})
 
-	// GET /lookup?name=alice&group= — look up a name
+	// GET /lookup?name=alice&group=
 	mux.HandleFunc("/lookup", func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Query().Get("name")
 		group := r.URL.Query().Get("group")
@@ -35,7 +34,6 @@ func (d *DHT) StartAPI(nodeName string, nodeAddress string, nodePublicKey string
 			http.Error(w, "name required", http.StatusBadRequest)
 			return
 		}
-
 		record, err := d.LookupValue(name, group)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -48,13 +46,12 @@ func (d *DHT) StartAPI(nodeName string, nodeAddress string, nodePublicKey string
 		json.NewEncoder(w).Encode(record)
 	})
 
-	// GET /peers — list known peers
+	// GET /peers
 	mux.HandleFunc("/peers", func(w http.ResponseWriter, r *http.Request) {
-		peers := d.PingAllPeers()
-		json.NewEncoder(w).Encode(peers)
+		json.NewEncoder(w).Encode(d.PingAllPeers())
 	})
 
-	// POST /peer?addr=... — add a peer
+	// POST /peer?addr=...
 	mux.HandleFunc("/peer", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST required", http.StatusMethodNotAllowed)
@@ -80,16 +77,12 @@ func (d *DHT) StartAPI(nodeName string, nodeAddress string, nodePublicKey string
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			// API failed to start — not fatal, just means CLI commands
-			// won't work while node is running
 			fmt.Println("Warning: local API failed:", err)
 		}
 	}()
-
-	fmt.Printf("Local API running on http://127.0.0.1:%d\n", APIPort)
 }
 
-// IsNodeRunning checks if a node is already running by hitting the local API
+// IsNodeRunning checks if a node is already running
 func IsNodeRunning() bool {
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", APIPort))

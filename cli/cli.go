@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"crypto/ed25519"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,7 +12,6 @@ import (
 
 	"meshnet/core"
 	"meshnet/dht"
-	"meshnet/pairing"
 )
 
 // Run is the entry point for the CLI
@@ -35,10 +32,6 @@ func Run() {
 		cmdPeers(os.Args[2:])
 	case "peer":
 		cmdPeer(os.Args[2:])
-	case "pair":
-		cmdPair(os.Args[2:])
-	case "contacts":
-		cmdContacts(os.Args[2:])
 	case "help", "--help", "-h":
 		printHelp()
 	default:
@@ -57,8 +50,6 @@ USAGE:
 COMMANDS:
   start     Start the MeshNet node
   lookup    Look up a name on the mesh
-  pair      Pair with another device
-  contacts  List paired devices
   status    Show node status
   peers     List known DHT peers
   peer      Manage peers
@@ -109,11 +100,13 @@ EXAMPLES:
 	fmt.Printf("Public Key: %s...\n\n", node.PublicKey()[:16])
 
 	// ── mesh connection ──────────────────────────────────────────────────────
+	// IMPORTANT: in TUN mode do NOT connect embedded library to peers.
+	// Both embedded library and subprocess use the same keypair.
+	// Two instances announcing the same key causes routing conflicts —
+	// remote nodes drop all traffic from that key.
 	var yggSvc *core.YggService
 
 	if *tun {
-		// TUN mode: subprocess handles ALL routing
-		// do NOT connect embedded library to peers — causes routing conflict
 		fmt.Print("Starting TUN interface")
 
 		yggSvc = core.NewYggService(*yggBin)
@@ -135,7 +128,6 @@ EXAMPLES:
 		fmt.Println("TUN active — browser can reach Yggdrasil addresses directly.")
 
 	} else {
-		// non-TUN mode: embedded library handles routing
 		fmt.Print("Connecting to mesh")
 		node.BootstrapPeers()
 		time.Sleep(3 * time.Second)
@@ -267,18 +259,6 @@ EXAMPLES:
 		os.Exit(1)
 	}
 
-	// check contacts first — instant, no DHT query needed
-	contacts, err := pairing.LoadContacts()
-	if err == nil {
-		if c := contacts.FindByName(name); c != nil {
-			fmt.Printf("\nFound in contacts: %s\n", name)
-			fmt.Printf("  Address: %s\n", c.Address)
-			fmt.Printf("  Paired:  %s ago\n", time.Since(c.PairedAt).Round(time.Minute))
-			return
-		}
-	}
-
-	// not in contacts — query DHT
 	url := fmt.Sprintf("http://127.0.0.1:%d/lookup?name=%s&group=%s",
 		dht.APIPort, name, *group)
 
@@ -377,7 +357,7 @@ func cmdPeers(args []string) {
 	}
 
 	if len(peers) == 0 {
-		fmt.Println("No known peers.")
+		fmt.Println("No known DHT peers.")
 		fmt.Println("Use 'meshnet peer add <address>' to connect to known nodes.")
 		return
 	}
@@ -448,7 +428,7 @@ USAGE:
 			fmt.Println("No peers file to clear.")
 			return
 		}
-		fmt.Println("Cleared all saved peers.")
+		fmt.Println("Cleared.")
 
 	default:
 		fmt.Printf("Unknown subcommand: %s\n", args[0])
@@ -457,172 +437,8 @@ USAGE:
 	}
 }
 
-// ── pair ─────────────────────────────────────────────────────────────────────
-
-func cmdPair(args []string) {
-	fs := flag.NewFlagSet("pair", flag.ExitOnError)
-	fs.Usage = func() {
-		fmt.Println(`Pair with another MeshNet device
-
-USAGE:
-  meshnet pair              Generate a pairing code
-  meshnet pair MESH-XXXX    Join using a code from another device
-
-EXAMPLES:
-  meshnet pair
-  meshnet pair MESH-4729`)
-	}
-	fs.Parse(args)
-
-	if !dht.IsNodeRunning() {
-		fmt.Println("No MeshNet node is running. Start one with: meshnet start")
-		os.Exit(1)
-	}
-
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", dht.APIPort))
-	if err != nil {
-		fmt.Println("Failed to reach running node:", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-
-	var status map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
-		fmt.Println("Failed to read node status:", err)
-		os.Exit(1)
-	}
-
-	nodeName := fmt.Sprintf("%v", status["name"])
-	nodeAddress := fmt.Sprintf("%v", status["address"])
-
-	privKey, err := loadPrivateKey()
-	if err != nil {
-		fmt.Println("Failed to load private key:", err)
-		os.Exit(1)
-	}
-
-	contacts, err := pairing.LoadContacts()
-	if err != nil {
-		fmt.Println("Failed to load contacts:", err)
-		os.Exit(1)
-	}
-
-	d, cleanup, err := startPairingDHT(nodeAddress, privKey)
-	if err != nil {
-		fmt.Println("Failed to connect to DHT:", err)
-		os.Exit(1)
-	}
-	defer cleanup()
-
-	var contact *pairing.Contact
-
-	if fs.NArg() == 0 {
-		contact, err = pairing.Initiate(d, nodeName, nodeAddress, privKey)
-	} else {
-		contact, err = pairing.Join(d, nodeName, nodeAddress, privKey, fs.Arg(0))
-	}
-
-	if err != nil {
-		fmt.Println("Pairing failed:", err)
-		os.Exit(1)
-	}
-
-	contacts.Add(*contact)
-	if err := contacts.Save(); err != nil {
-		fmt.Println("Warning: could not save contact:", err)
-	} else {
-		fmt.Printf("Saved %s to contacts.\n", contact.Name)
-	}
-}
-
-// ── contacts ─────────────────────────────────────────────────────────────────
-
-func cmdContacts(args []string) {
-	fs := flag.NewFlagSet("contacts", flag.ExitOnError)
-	fs.Parse(args)
-
-	contacts, err := pairing.LoadContacts()
-	if err != nil {
-		fmt.Println("Failed to load contacts:", err)
-		os.Exit(1)
-	}
-
-	all := contacts.All()
-	if len(all) == 0 {
-		fmt.Println("No contacts yet.")
-		fmt.Println("Pair with another device using: meshnet pair")
-		return
-	}
-
-	fmt.Printf("\nContacts (%d)\n", len(all))
-	fmt.Println("──────────────────────────────────────────────────────")
-	for _, c := range all {
-		fmt.Printf("  %-20s  %s\n", c.Name, c.Address)
-		fmt.Printf("  %-20s  paired %s ago\n", "",
-			time.Since(c.PairedAt).Round(time.Minute))
-	}
-	fmt.Println("──────────────────────────────────────────────────────")
-}
-
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-// loadPrivateKey reads the ed25519 private key from identity.json
-func loadPrivateKey() (ed25519.PrivateKey, error) {
-	identityPath := os.Getenv("IDENTITY")
-	if identityPath == "" {
-		identityPath = "identity.json"
-	}
-
-	data, err := os.ReadFile(identityPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not read %s: %w", identityPath, err)
-	}
-
-	var identity struct {
-		PrivateKey string `json:"private_key"`
-	}
-	if err := json.Unmarshal(data, &identity); err != nil {
-		return nil, fmt.Errorf("could not parse identity file: %w", err)
-	}
-
-	keyBytes, err := hex.DecodeString(identity.PrivateKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid private key encoding: %w", err)
-	}
-
-	return ed25519.PrivateKey(keyBytes), nil
-}
-
-// startPairingDHT creates a temporary DHT instance for pairing operations
-func startPairingDHT(address string, privKey ed25519.PrivateKey) (*dht.DHT, func(), error) {
-	pubKey := privKey.Public().(ed25519.PublicKey)
-	selfID, err := dht.NodeIDFromBytes(pubKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create node ID: %w", err)
-	}
-
-	d := dht.New(address, selfID, 9010)
-	if err := d.Start(); err != nil {
-		return nil, nil, fmt.Errorf("failed to start pairing DHT: %w", err)
-	}
-
-	// bootstrap from running node's known peers
-	client := &http.Client{Timeout: 5 * time.Second}
-	if resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/peers", dht.APIPort)); err == nil {
-		defer resp.Body.Close()
-		var peers []dht.PeerInfo
-		if json.NewDecoder(resp.Body).Decode(&peers) == nil {
-			for _, p := range peers {
-				d.PingPeer(fmt.Sprintf("[%s]:%d", p.Addr, p.Port))
-			}
-		}
-	}
-
-	return d, func() { d.Stop() }, nil
-}
-
-// str16 safely trims an interface{} string to 16 chars for display
 func str16(v interface{}) string {
 	s := fmt.Sprintf("%v", v)
 	if len(s) > 16 {

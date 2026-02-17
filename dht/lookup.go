@@ -10,15 +10,11 @@ import (
 const alpha = 3
 
 type lookupState struct {
-	target NodeID
-
-	self NodeID
-
-	contacted map[NodeID]bool
-
+	target     NodeID
+	self       NodeID
+	contacted  map[NodeID]bool
 	candidates []Contact
-
-	mu sync.Mutex
+	mu         sync.Mutex
 }
 
 func newLookupState(self NodeID, target NodeID, seeds []Contact) *lookupState {
@@ -121,9 +117,6 @@ func (d *DHT) LookupNode(target NodeID) []Contact {
 
 				contacts, err := SendFindNode(c.Addr(), d.table.self, target)
 				if err != nil {
-					// only remove on connection refused — not timeouts or other errors
-					// a slow node shouldn't be permanently removed
-					fmt.Printf("DHT: FindNode to %s failed: %v\n", c.Addr(), err)
 					return
 				}
 
@@ -164,8 +157,7 @@ func (d *DHT) LookupNode(target NodeID) []Contact {
 }
 
 func (d *DHT) LookupValue(name string, groupKey string) (*Record, error) {
-
-	// check local store first before querying network
+	// check local store first
 	var localRecord Record
 	var localFound bool
 	if groupKey == "" {
@@ -178,7 +170,6 @@ func (d *DHT) LookupValue(name string, groupKey string) (*Record, error) {
 	}
 
 	target := RecordID(name)
-
 	seeds := d.table.Closest(target, K)
 	if len(seeds) == 0 {
 		return nil, fmt.Errorf("no known nodes to query")
@@ -265,17 +256,17 @@ func (d *DHT) Announce(record Record) error {
 		return fmt.Errorf("invalid record: %w", err)
 	}
 
-	// store locally first — always
+	// store locally first
 	if err := d.store.Put(record); err != nil {
 		return fmt.Errorf("failed to store locally: %w", err)
 	}
 
-	// then distribute to closest nodes
+	// distribute to closest nodes
 	target := RecordID(record.Name)
 	closest := d.LookupNode(target)
 
 	if len(closest) == 0 {
-		fmt.Printf("DHT: announced %q locally only\n", record.Name)
+		// no other nodes yet — stored locally, will propagate when peers connect
 		return nil
 	}
 
@@ -287,8 +278,7 @@ func (d *DHT) Announce(record Record) error {
 		wg.Add(1)
 		go func(c Contact) {
 			defer wg.Done()
-			err := SendStore(c.Addr(), record)
-			if err == nil {
+			if SendStore(c.Addr(), record) == nil {
 				mu.Lock()
 				stored++
 				mu.Unlock()
@@ -297,6 +287,10 @@ func (d *DHT) Announce(record Record) error {
 	}
 
 	wg.Wait()
-	fmt.Printf("DHT: announced %q on %d nodes\n", record.Name, stored)
+
+	if stored > 0 {
+		fmt.Printf("Announced %q on %d nodes\n", record.Name, stored)
+	}
+
 	return nil
 }
