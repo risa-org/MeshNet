@@ -57,7 +57,7 @@ Records propagate through a [Kademlia DHT](https://en.wikipedia.org/wiki/Kademli
 ### Install
 
 ```bash
-git clone https://github.com/yourusername/meshnet
+git clone https://github.com/risa-org/meshnet
 cd meshnet
 ```
 
