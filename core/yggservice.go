@@ -13,9 +13,14 @@ import (
 // yggConfigFile is where we write the Yggdrasil config
 const yggConfigFile = "yggdrasil-meshnet.conf"
 
-// yggAdminAddr is where Yggdrasil's admin socket listens
+// yggAdminAddr is where the installed Yggdrasil service admin socket listens
 const yggAdminAddr = "localhost:9001"
+
+// yggSubprocessAdminAddr is where our subprocess admin socket listens
 const yggSubprocessAdminAddr = "localhost:9091"
+
+// yggLogFile is where subprocess output goes — keeps our CLI output clean
+const yggLogFile = "yggdrasil.log"
 
 // yggConfig is the minimal Yggdrasil configuration we need
 type yggConfig struct {
@@ -32,6 +37,7 @@ type YggService struct {
 	cmd     *exec.Cmd
 	binPath string
 	cfgPath string
+	logFile *os.File
 }
 
 // NewYggService creates a new YggService
@@ -71,20 +77,19 @@ func (s *YggService) WriteConfig(privKeyHex string) error {
 		return fmt.Errorf("failed to write yggdrasil config: %w", err)
 	}
 
-	fmt.Printf("Yggdrasil config written to %s\n", s.cfgPath)
 	return nil
 }
 
+// IsInstalled checks if the Yggdrasil Windows Service is installed
 func (s *YggService) IsInstalled() bool {
 	cmd := exec.Command("sc", "query", "Yggdrasil")
 	err := cmd.Run()
 	return err == nil
 }
 
-// IsRunning checks if the Yggdrasil admin socket is reachable
-// if it is, Yggdrasil is already running
-func (s *YggService) IsRunning() bool {
-	conn, err := net.DialTimeout("tcp", yggAdminAddr, 500*time.Millisecond)
+// isSubprocessRunning checks if our subprocess admin socket is reachable
+func (s *YggService) isSubprocessRunning() bool {
+	conn, err := net.DialTimeout("tcp", yggSubprocessAdminAddr, 300*time.Millisecond)
 	if err != nil {
 		return false
 	}
@@ -96,13 +101,11 @@ func (s *YggService) IsRunning() bool {
 // requires Administrator privileges on Windows for TUN creation
 func (s *YggService) Start() error {
 	if s.IsInstalled() {
-		fmt.Println("Installed Yggdrasil service detected — using existing TUN adapter")
-		// add our peers to the running service via admin socket
+		fmt.Println("Using installed Yggdrasil service.")
 		s.addPeersViaAdmin()
 		return nil
 	}
 
-	// not installed — start subprocess
 	absPath, err := filepath.Abs(s.binPath)
 	if err != nil {
 		return fmt.Errorf("invalid binary path: %w", err)
@@ -117,51 +120,65 @@ func (s *YggService) Start() error {
 	}
 
 	// clean up leftover adapter from previous run
+	// prevents "file already exists" on WinTun driver
 	exec.Command("netsh", "interface", "delete", "interface", "Yggdrasil").Run()
 	time.Sleep(500 * time.Millisecond)
 
 	s.cmd = exec.Command(absPath, "-useconffile", absCfg, "-logto", "stdout")
-	s.cmd.Stdout = os.Stdout
-	s.cmd.Stderr = os.Stderr
+
+	// redirect subprocess output to log file — keeps CLI output clean
+	logFile, err := os.OpenFile(yggLogFile,
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// can't open log file — fall back to stdout
+		s.cmd.Stdout = os.Stdout
+		s.cmd.Stderr = os.Stderr
+	} else {
+		s.logFile = logFile
+		s.cmd.Stdout = logFile
+		s.cmd.Stderr = logFile
+	}
 
 	if err := s.cmd.Start(); err != nil {
+		if s.logFile != nil {
+			s.logFile.Close()
+		}
 		return fmt.Errorf("failed to start yggdrasil: %w", err)
 	}
 
-	fmt.Printf("Yggdrasil started (pid %d)\n", s.cmd.Process.Pid)
-	fmt.Print("Waiting for TUN interface")
-	for i := 0; i < 30; i++ {
+	// wait for subprocess admin socket on 9091
+	// it comes up before TUN is fully initialized
+	for i := 0; i < 60; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if s.IsRunning() {
-			// admin socket up — wait extra for TUN to finish setup
-			fmt.Print(" (TUN initializing)")
-			time.Sleep(4 * time.Second)
-			fmt.Println(" ready.")
+		fmt.Print(".")
+		if s.isSubprocessRunning() {
+			// admin socket up — TUN initialization takes a few more seconds
+			time.Sleep(5 * time.Second)
 			return nil
 		}
-		fmt.Print(".")
 	}
 
 	s.cmd.Process.Kill()
-	return fmt.Errorf("yggdrasil failed to start within 15 seconds")
+	if s.logFile != nil {
+		s.logFile.Close()
+	}
+	return fmt.Errorf("yggdrasil failed to start — check %s for details", yggLogFile)
 }
 
-// addPeersViaAdmin adds bootstrap peers to the running Yggdrasil service
-// via its admin socket — no config file editing needed
+// addPeersViaAdmin adds bootstrap peers to the running installed service
 func (s *YggService) addPeersViaAdmin() {
 	peers := []string{
-		"tls://62.210.85.80:39575",  // france
-		"tls://51.15.204.214:54321", // france
-		"tls://n.ygg.yt:443",        // germany
-		"tls://ygg7.mk16.de:1338?key=000000086278b5f3ba1eb63acb5b7f6e406f04ce83990dee9c07f49011e375ae", // austria
-		"tls://syd.joel.net.au:8443", // australia
-		"tls://95.217.35.92:1337",    // finland
-		"tls://37.205.14.171:993",    // czechia
+		"tls://62.210.85.80:39575",
+		"tls://51.15.204.214:54321",
+		"tls://n.ygg.yt:443",
+		"tls://ygg7.mk16.de:1338?key=000000086278b5f3ba1eb63acb5b7f6e406f04ce83990dee9c07f49011e375ae",
+		"tls://syd.joel.net.au:8443",
+		"tls://95.217.35.92:1337",
+		"tls://37.205.14.171:993",
 	}
 
-	conn, err := net.DialTimeout("tcp", "localhost:9001", 2*time.Second)
+	conn, err := net.DialTimeout("tcp", yggAdminAddr, 2*time.Second)
 	if err != nil {
-		fmt.Println("Warning: could not reach Yggdrasil admin socket:", err)
 		return
 	}
 	defer conn.Close()
@@ -171,28 +188,25 @@ func (s *YggService) addPeersViaAdmin() {
 		conn.Write([]byte(req + "\n"))
 		time.Sleep(100 * time.Millisecond)
 	}
-
-	fmt.Println("Peers added to Yggdrasil service")
 }
 
-// GetAddress queries the Yggdrasil admin socket for our address
-// returns the 200: address assigned to the TUN interface
+// GetAddress queries the subprocess admin socket for our mesh address
 func (s *YggService) GetAddress() (string, error) {
-	conn, err := net.DialTimeout("tcp", yggAdminAddr, 3*time.Second)
+	conn, err := net.DialTimeout("tcp", yggSubprocessAdminAddr, 3*time.Second)
 	if err != nil {
-		return "", fmt.Errorf("cannot reach yggdrasil admin: %w", err)
+		// try installed service socket as fallback
+		conn, err = net.DialTimeout("tcp", yggAdminAddr, 3*time.Second)
+		if err != nil {
+			return "", fmt.Errorf("cannot reach yggdrasil admin: %w", err)
+		}
 	}
 	defer conn.Close()
 
-	// send getSelf request
-	req := map[string]interface{}{
-		"request": "getSelf",
-	}
+	req := map[string]interface{}{"request": "getSelf"}
 	data, _ := json.Marshal(req)
 	conn.Write(data)
 	conn.Write([]byte("\n"))
 
-	// read response
 	buf := make([]byte, 4096)
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	n, err := conn.Read(buf)
@@ -200,13 +214,11 @@ func (s *YggService) GetAddress() (string, error) {
 		return "", fmt.Errorf("failed to read admin response: %w", err)
 	}
 
-	// parse response
 	var resp map[string]interface{}
 	if err := json.Unmarshal(buf[:n], &resp); err != nil {
 		return "", fmt.Errorf("failed to parse admin response: %w", err)
 	}
 
-	// extract address
 	if status, ok := resp["response"].(map[string]interface{}); ok {
 		if addr, ok := status["address"].(string); ok {
 			return addr, nil
@@ -216,19 +228,19 @@ func (s *YggService) GetAddress() (string, error) {
 	return "", fmt.Errorf("address not found in admin response")
 }
 
-// Stop shuts down the Yggdrasil subprocess we started
-// if we didn't start it (it was already running) we leave it alone
+// Stop shuts down the Yggdrasil subprocess
 func (s *YggService) Stop() {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return
 	}
-	fmt.Println("Stopping Yggdrasil subprocess...")
+
 	s.cmd.Process.Kill()
 	s.cmd.Wait()
 
-	// remove the TUN adapter so next run starts clean
-	// this prevents the "file already exists" error on next startup
-	cleanup := exec.Command("netsh", "interface", "delete", "interface", "Yggdrasil")
-	cleanup.Run()
-	fmt.Println("Yggdrasil stopped.")
+	if s.logFile != nil {
+		s.logFile.Close()
+	}
+
+	// clean up TUN adapter so next run starts fresh
+	exec.Command("netsh", "interface", "delete", "interface", "Yggdrasil").Run()
 }

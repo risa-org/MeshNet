@@ -13,7 +13,6 @@ import (
 const peersFile = "peers.json"
 
 // savedPeer is the serializable form of a Contact
-// net.IP doesn't serialize cleanly so we use strings
 type savedPeer struct {
 	ID   string `json:"id"`
 	Addr string `json:"addr"`
@@ -21,7 +20,6 @@ type savedPeer struct {
 }
 
 // SavePeers writes all known contacts to disk
-// called on shutdown so next startup doesn't start blind
 func (d *DHT) SavePeers() error {
 	contacts := d.table.All()
 	if len(contacts) == 0 {
@@ -51,18 +49,14 @@ func (d *DHT) SavePeers() error {
 }
 
 // LoadPeers reads saved peers from disk and pings each one
-// peers that don't respond are skipped — they may be offline
-// peers that respond are added to the routing table
 func (d *DHT) LoadPeers() {
 	data, err := os.ReadFile(peersFile)
 	if err != nil {
-		// no peers file yet — first run or file was deleted
 		return
 	}
 
 	var peers []savedPeer
 	if err := json.Unmarshal(data, &peers); err != nil {
-		fmt.Println("Warning: could not parse peers file:", err)
 		return
 	}
 
@@ -70,10 +64,6 @@ func (d *DHT) LoadPeers() {
 		return
 	}
 
-	fmt.Printf("Loading %d saved peers...\n", len(peers))
-
-	// ping each saved peer concurrently
-	// only add ones that actually respond
 	var wg sync.WaitGroup
 	alive := 0
 	var mu sync.Mutex
@@ -83,8 +73,7 @@ func (d *DHT) LoadPeers() {
 		go func(sp savedPeer) {
 			defer wg.Done()
 			addr := fmt.Sprintf("[%s]:%d", sp.Addr, sp.Port)
-			err := d.PingPeer(addr)
-			if err == nil {
+			if d.PingPeer(addr) == nil {
 				mu.Lock()
 				alive++
 				mu.Unlock()
@@ -93,14 +82,13 @@ func (d *DHT) LoadPeers() {
 	}
 
 	wg.Wait()
-	fmt.Printf("Restored %d/%d peers from disk\n", alive, len(peers))
+	if alive > 0 {
+		fmt.Printf("  %d MeshNet peers restored\n", alive)
+	}
 }
 
-// BootstrapDHT attempts to populate the routing table using
-// saved peers first, then well-known bootstrap nodes
-// returns number of peers successfully contacted
+// BootstrapDHT populates the routing table using saved peers then bootstrap nodes
 func (d *DHT) BootstrapDHT() int {
-	// try saved peers first — they're more likely to be MeshNet nodes
 	d.LoadPeers()
 
 	if d.table.Size() > 0 {
@@ -108,9 +96,7 @@ func (d *DHT) BootstrapDHT() int {
 	}
 
 	// no saved peers — try well-known bootstrap nodes
-	fmt.Println("No saved peers found. Trying bootstrap nodes...")
 	contacted := 0
-
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
@@ -118,28 +104,21 @@ func (d *DHT) BootstrapDHT() int {
 		wg.Add(1)
 		go func(a string) {
 			defer wg.Done()
-			err := d.PingPeer(a)
-			if err == nil {
+			if d.PingPeer(a) == nil {
 				mu.Lock()
 				contacted++
 				mu.Unlock()
-				fmt.Printf("Bootstrap peer alive: %s\n", a)
 			}
 		}(addr)
 	}
 
 	wg.Wait()
-
-	if contacted == 0 {
-		fmt.Println("No bootstrap peers reachable — DHT starting in isolated mode")
-		fmt.Println("Use 'meshnet peer add <address>' to connect to known nodes")
-	}
-
+	// no message if no peers found — this is normal when first starting out
+	// the mesh still works, DHT just starts with empty routing table
 	return d.table.Size()
 }
 
 // All returns all contacts in the routing table
-// added to RoutingTable so SavePeers can access them
 func (rt *RoutingTable) All() []Contact {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
@@ -161,7 +140,6 @@ type PeerInfo struct {
 }
 
 // PingAllPeers pings all known peers and returns their status
-// useful for the 'peers' CLI command
 func (d *DHT) PingAllPeers() []PeerInfo {
 	contacts := d.table.All()
 	results := make([]PeerInfo, len(contacts))

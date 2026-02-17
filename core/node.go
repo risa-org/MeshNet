@@ -25,9 +25,10 @@ func NewNode() *Node {
 
 func (n *Node) Start() error {
 	n.logger = log.New(os.Stderr, "", 0)
-	n.logger.EnableLevel("info")
 	n.logger.EnableLevel("warn")
 	n.logger.EnableLevel("error")
+	// info level disabled — suppresses "Connected outbound" noise
+	// re-enable with n.logger.EnableLevel("info") for debugging
 
 	pubKey, privKey, err := loadOrCreateIdentity()
 	if err != nil {
@@ -62,12 +63,14 @@ func (n *Node) AddPeer(peerURL string) error {
 	return n.core.AddPeer(u, "")
 }
 
-func (n *Node) Bootstrap() {
-	// peers are added externally only when NOT in TUN mode
-	// in TUN mode the subprocess handles all routing
-	// calling this when subprocess is running causes routing conflicts
-}
+// Bootstrap is a no-op stub
+// in TUN mode the subprocess handles all routing
+// in non-TUN mode call BootstrapPeers() instead
+func (n *Node) Bootstrap() {}
 
+// BootstrapPeers connects the embedded library to Yggdrasil peers
+// only call this when NOT in TUN mode
+// calling this with TUN active causes routing conflicts — same key, two instances
 func (n *Node) BootstrapPeers() {
 	peers := []string{
 		"tls://62.210.85.80:39575",
@@ -87,10 +90,11 @@ func (n *Node) BootstrapPeers() {
 			if err := n.core.AddPeer(u, ""); err != nil {
 				return
 			}
-			fmt.Println("Peer Added", p)
+			fmt.Println("  ✓", p)
 		}(peer)
 	}
 }
+
 func (n *Node) Address() string {
 	return n.address
 }
@@ -100,14 +104,16 @@ func (n *Node) PublicKey() string {
 }
 
 func (n *Node) Stop() {
+	// suppress disconnect noise during clean shutdown
+	n.logger.DisableLevel("warn")
+	n.logger.DisableLevel("error")
+
 	if n.admin != nil {
 		n.admin.Stop()
 	}
-
 	if n.core != nil {
 		n.core.Stop()
 	}
-
 }
 
 func (n *Node) PrivateKey() ed25519.PrivateKey {
